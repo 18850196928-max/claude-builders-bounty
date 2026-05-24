@@ -57,11 +57,20 @@ fi
 
 TODAY=$(date +%Y-%m-%d)
 
-# Get the next version hint
+# Determine next version: suggest a semver bump based on commit types
 NEXT_VERSION="Unreleased"
 LATEST_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
 if [[ -n "$LATEST_TAG" ]]; then
-    NEXT_VERSION="$LATEST_TAG"
+    # Strip leading 'v' for parsing
+    BASE="${LATEST_TAG#v}"
+    IFS='.' read -r MAJOR MINOR PATCH <<< "$BASE"
+    MAJOR=${MAJOR:-0}; MINOR=${MINOR:-0}; PATCH=${PATCH:-0}
+    # Suggest a minor bump by default; major if breaking changes detected
+    if git log "$SINCE..HEAD" --pretty=format:"%s" --no-merges 2>/dev/null | grep -qiE '!.+:'; then
+        NEXT_VERSION="v$((MAJOR + 1)).0.0"
+    else
+        NEXT_VERSION="v$MAJOR.$((MINOR + 1)).0"
+    fi
 fi
 
 echo "Generating changelog from: $SINCE"
@@ -77,12 +86,12 @@ REMOVED=""
 
 while IFS= read -r line; do
     [[ -z "$line" ]] && continue
-    # Categorize by conventional commit prefix
-    if echo "$line" | grep -qiE '^(feat|add|added|new|implement)'; then
+    # Categorize by conventional commit type prefix
+    if echo "$line" | grep -qiE '^(feat|add|new|implement)(\(.+\))?!?:'; then
         ADDED+="  - $line"$'\n'
-    elif echo "$line" | grep -qiE '^(fix|bug|patch|resolve|hotfix)'; then
+    elif echo "$line" | grep -qiE '^(fix|bug|patch|hotfix|repair)(\(.+\))?!?:'; then
         FIXED+="  - $line"$'\n'
-    elif echo "$line" | grep -qiE '^(remove|drop|delete|deprecate|rm)'; then
+    elif echo "$line" | grep -qiE '^(remove|drop|delete|deprecate|rm)(\(.+\))?!?:'; then
         REMOVED+="  - $line"$'\n'
     else
         CHANGED+="  - $line"$'\n'
@@ -111,26 +120,24 @@ fi
 
 # Output
 if $DRY_RUN; then
-    echo -e "$CONTENT"
+    printf '%b\n' "$CONTENT"
 else
     # If file exists, prepend; otherwise create
     if [[ -f "$OUTPUT" ]]; then
         EXISTING=$(cat "$OUTPUT" 2>/dev/null || echo "")
-        echo -e "$CONTENT\n\n$EXISTING" > "$OUTPUT"
+        printf '%b\n\n%s\n' "$CONTENT" "$EXISTING" > "$OUTPUT"
         echo "Prepended to existing $OUTPUT"
     else
-        echo -e "$CONTENT" > "$OUTPUT"
+        printf '%b\n' "$CONTENT" > "$OUTPUT"
         echo "Created $OUTPUT"
     fi
 fi
 
 # Summary
-set +e
-ADDED_COUNT=$(echo -e "$ADDED" | grep -cE '^\s*- ' 2>/dev/null)
-FIXED_COUNT=$(echo -e "$FIXED" | grep -cE '^\s*- ' 2>/dev/null)
-CHANGED_COUNT=$(echo -e "$CHANGED" | grep -cE '^\s*- ' 2>/dev/null)
-REMOVED_COUNT=$(echo -e "$REMOVED" | grep -cE '^\s*- ' 2>/dev/null)
-set -e
+ADDED_COUNT=$(echo "$ADDED" | grep -cE '^\s*- ' 2>/dev/null || true)
+FIXED_COUNT=$(echo "$FIXED" | grep -cE '^\s*- ' 2>/dev/null || true)
+CHANGED_COUNT=$(echo "$CHANGED" | grep -cE '^\s*- ' 2>/dev/null || true)
+REMOVED_COUNT=$(echo "$REMOVED" | grep -cE '^\s*- ' 2>/dev/null || true)
 ADDED_COUNT=${ADDED_COUNT:-0}
 FIXED_COUNT=${FIXED_COUNT:-0}
 CHANGED_COUNT=${CHANGED_COUNT:-0}

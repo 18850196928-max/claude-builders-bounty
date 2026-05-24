@@ -23,7 +23,7 @@ Or manually: `bash changelog.sh`
 
 ## Script
 
-The script is located at `scripts/changelog.sh`. To run it:
+The script is located at `changelog.sh`. To run it:
 
 ```bash
 bash changelog.sh [--output CHANGELOG.md] [--since <tag>]
